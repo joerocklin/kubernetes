@@ -207,6 +207,117 @@ func TestKubeConfigSubCommandsThatCreateFilesWithFlags(t *testing.T) {
 	}
 }
 
+func TestKubeConfigWithAPIServerAdvertiseFQDN(t *testing.T) {
+
+	commonFlags := []string{
+		"--apiserver-advertise-address=apiserver.example.com",
+		"--apiserver-bind-port=1234",
+	}
+
+	var tests = []struct {
+		command         string
+		additionalFlags []string
+		expectedFiles   []string
+	}{
+		{
+			command:         "all",
+			additionalFlags: []string{"--node-name=valid-nome-name"},
+			expectedFiles: []string{
+				kubeadmconstants.AdminKubeConfigFileName,
+				kubeadmconstants.KubeletKubeConfigFileName,
+				kubeadmconstants.ControllerManagerKubeConfigFileName,
+				kubeadmconstants.SchedulerKubeConfigFileName,
+			},
+		},
+		{
+			command:       "admin",
+			expectedFiles: []string{kubeadmconstants.AdminKubeConfigFileName},
+		},
+		{
+			command:         "kubelet",
+			additionalFlags: []string{"--node-name=valid-nome-name"},
+			expectedFiles:   []string{kubeadmconstants.KubeletKubeConfigFileName},
+		},
+		{
+			command:       "controller-manager",
+			expectedFiles: []string{kubeadmconstants.ControllerManagerKubeConfigFileName},
+		},
+		{
+			command:       "scheduler",
+			expectedFiles: []string{kubeadmconstants.SchedulerKubeConfigFileName},
+		},
+	}
+
+	var kubeConfigAssertions = map[string]struct {
+		clientName    string
+		organizations []string
+	}{
+		kubeadmconstants.AdminKubeConfigFileName: {
+			clientName:    "kubernetes-admin",
+			organizations: []string{kubeadmconstants.MastersGroup},
+		},
+		kubeadmconstants.KubeletKubeConfigFileName: {
+			clientName:    "system:node:valid-nome-name",
+			organizations: []string{kubeadmconstants.NodesGroup},
+		},
+		kubeadmconstants.ControllerManagerKubeConfigFileName: {
+			clientName: kubeadmconstants.ControllerManagerUser,
+		},
+		kubeadmconstants.SchedulerKubeConfigFileName: {
+			clientName: kubeadmconstants.SchedulerUser,
+		},
+	}
+
+	for _, test := range tests {
+
+		// Create temp folder for the test case
+		tmpdir := testutil.SetupTempDir(t)
+		defer os.RemoveAll(tmpdir)
+
+		// Adds a pki folder with a ca certs to the temp folder
+		pkidir := testutil.SetupPkiDirWithCertificateAuthorithy(t, tmpdir)
+
+		outputdir := tmpdir
+
+		// Retrieves ca cert for assertions
+		caCert, _, err := pkiutil.TryLoadCertAndKeyFromDisk(pkidir, kubeadmconstants.CACertAndKeyBaseName)
+		if err != nil {
+			t.Fatalf("couldn't retrieve ca cert: %v", err)
+		}
+
+		// Get subcommands working in the temporary directory
+		subCmds := getKubeConfigSubCommands(nil, tmpdir, phaseTestK8sVersion)
+
+		// Execute the subcommand
+		certDirFlag := fmt.Sprintf("--cert-dir=%s", pkidir)
+		outputDirFlag := fmt.Sprintf("--kubeconfig-dir=%s", outputdir)
+		allFlags := append(commonFlags, certDirFlag)
+		allFlags = append(allFlags, outputDirFlag)
+		allFlags = append(allFlags, test.additionalFlags...)
+		cmdtestutil.RunSubCommand(t, subCmds, test.command, allFlags...)
+
+		// Checks that requested files are there
+		testutil.AssertFileExists(t, tmpdir, test.expectedFiles...)
+
+		// Checks contents of generated files
+		for _, file := range test.expectedFiles {
+
+			// reads generated files
+			config, err := clientcmd.LoadFromFile(filepath.Join(tmpdir, file))
+			if err != nil {
+				t.Errorf("couldn't load generated kubeconfig file: %v", err)
+			}
+
+			// checks that CLI flags are properly propagated and kubeconfig properties are correct
+			kubeconfigtestutil.AssertKubeConfigCurrentCluster(t, config, "https://apiserver.example.com:1234", caCert)
+
+			expectedClientName := kubeConfigAssertions[file].clientName
+			expectedOrganizations := kubeConfigAssertions[file].organizations
+			kubeconfigtestutil.AssertKubeConfigCurrentAuthInfoWithClientCert(t, config, caCert, expectedClientName, expectedOrganizations...)
+
+		}
+	}
+}
 func TestKubeConfigSubCommandsThatCreateFilesWithConfigFile(t *testing.T) {
 
 	var tests = []struct {
