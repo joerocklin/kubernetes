@@ -210,7 +210,7 @@ func TestKubeConfigSubCommandsThatCreateFilesWithFlags(t *testing.T) {
 func TestKubeConfigWithAPIServerAdvertiseFQDN(t *testing.T) {
 
 	commonFlags := []string{
-		"--apiserver-advertise-address=apiserver.example.com",
+		"--apiserver-advertise-address=k8s.io",
 		"--apiserver-bind-port=1234",
 	}
 
@@ -229,23 +229,6 @@ func TestKubeConfigWithAPIServerAdvertiseFQDN(t *testing.T) {
 				kubeadmconstants.SchedulerKubeConfigFileName,
 			},
 		},
-		{
-			command:       "admin",
-			expectedFiles: []string{kubeadmconstants.AdminKubeConfigFileName},
-		},
-		{
-			command:         "kubelet",
-			additionalFlags: []string{"--node-name=valid-nome-name"},
-			expectedFiles:   []string{kubeadmconstants.KubeletKubeConfigFileName},
-		},
-		{
-			command:       "controller-manager",
-			expectedFiles: []string{kubeadmconstants.ControllerManagerKubeConfigFileName},
-		},
-		{
-			command:       "scheduler",
-			expectedFiles: []string{kubeadmconstants.SchedulerKubeConfigFileName},
-		},
 	}
 
 	var kubeConfigAssertions = map[string]struct {
@@ -255,16 +238,6 @@ func TestKubeConfigWithAPIServerAdvertiseFQDN(t *testing.T) {
 		kubeadmconstants.AdminKubeConfigFileName: {
 			clientName:    "kubernetes-admin",
 			organizations: []string{kubeadmconstants.MastersGroup},
-		},
-		kubeadmconstants.KubeletKubeConfigFileName: {
-			clientName:    "system:node:valid-nome-name",
-			organizations: []string{kubeadmconstants.NodesGroup},
-		},
-		kubeadmconstants.ControllerManagerKubeConfigFileName: {
-			clientName: kubeadmconstants.ControllerManagerUser,
-		},
-		kubeadmconstants.SchedulerKubeConfigFileName: {
-			clientName: kubeadmconstants.SchedulerUser,
 		},
 	}
 
@@ -309,7 +282,7 @@ func TestKubeConfigWithAPIServerAdvertiseFQDN(t *testing.T) {
 			}
 
 			// checks that CLI flags are properly propagated and kubeconfig properties are correct
-			kubeconfigtestutil.AssertKubeConfigCurrentCluster(t, config, "https://apiserver.example.com:1234", caCert)
+			kubeconfigtestutil.AssertKubeConfigCurrentCluster(t, config, "https://k8s.io:1234", caCert)
 
 			expectedClientName := kubeConfigAssertions[file].clientName
 			expectedOrganizations := kubeConfigAssertions[file].organizations
