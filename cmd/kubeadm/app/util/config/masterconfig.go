@@ -41,25 +41,41 @@ import (
 
 // SetInitDynamicDefaults checks and sets configuration values for the MasterConfiguration object
 func SetInitDynamicDefaults(cfg *kubeadmapi.MasterConfiguration) error {
+	advertiseByIP := true
+	var ip net.IP
 
 	// validate cfg.API.AdvertiseAddress.
 	addressIP := net.ParseIP(cfg.API.AdvertiseAddress)
 	if addressIP == nil && cfg.API.AdvertiseAddress != "" {
-		return fmt.Errorf("couldn't use \"%s\" as \"apiserver-advertise-address\", must be ipv4 or ipv6 address", cfg.API.AdvertiseAddress)
+		advertiseByIP = false
+		addrs, err := net.LookupHost(cfg.API.AdvertiseAddress)
+		if err != nil {
+			return fmt.Errorf("couldn't use \"%s\" as \"apiserver-advertise-address\": %+v", cfg.API.AdvertiseAddress, err)
+		}
+		if len(addrs) == 0 {
+			glog.V(1).Infof("No addresses found for apiserver address \"%s\" as \"apiserver-advertise-address\", proceeding anyway", cfg.API.AdvertiseAddress)
+		}
 	}
-	// Choose the right address for the API Server to advertise. If the advertise address is localhost or 0.0.0.0, the default interface's IP address is used
-	// This is the same logic as the API Server uses
-	ip, err := netutil.ChooseBindAddress(addressIP)
-	if err != nil {
-		return err
+
+	if advertiseByIP {
+		// Choose the right address for the API Server to advertise. If the advertise address is localhost or 0.0.0.0, the default interface's IP address is used
+		// This is the same logic as the API Server uses
+		ip, err := netutil.ChooseBindAddress(addressIP)
+		if err != nil {
+			return err
+		}
+		cfg.API.AdvertiseAddress = ip.String()
+		ip = net.ParseIP(cfg.API.AdvertiseAddress)
+	} else {
+		ip = net.ParseIP("0.0.0.0")
 	}
-	cfg.API.AdvertiseAddress = ip.String()
-	ip = net.ParseIP(cfg.API.AdvertiseAddress)
+
 	if ip.To4() != nil {
 		cfg.KubeProxy.Config.BindAddress = kubeadmapiv1alpha2.DefaultProxyBindAddressv4
 	} else {
 		cfg.KubeProxy.Config.BindAddress = kubeadmapiv1alpha2.DefaultProxyBindAddressv6
 	}
+
 	// Resolve possible version labels and validate version string
 	if err := NormalizeKubernetesVersion(cfg); err != nil {
 		return err
